@@ -3,7 +3,7 @@ import { Config } from "../config.js";
 import { logger } from "../logger.js";
 import type { Candle } from "../types.js";
 import { candlesToCandles, toMarkPrice, toTicker } from "./normalize.js";
-import type { QueryParams, ToobitResponse } from "./types.js";
+import type { PlaceOrderParams, QueryParams, ToobitResponse, TradingStopParams } from "./types.js";
 
 /**
  * Toobit REST client — a faithful port of the transport/signing logic in
@@ -532,6 +532,148 @@ export class ToobitClient {
       20,
     );
     return toMarkPrice(res.data).markPrice;
+  }
+
+  // ---------- futures (private) — exact shapes from the MCP reference ----------
+
+  /** Exchange info — trading rules and symbol list (public). */
+  getExchangeInfo(): Promise<ClientResponse<unknown>> {
+    return this.publicGet<unknown>("/api/v1/exchangeInfo", {}, "exchangeInfo", 10);
+  }
+
+  /** Risk-limit brackets for a contract symbol (public). */
+  getRiskLimits(symbol: string): Promise<ClientResponse<unknown>> {
+    return this.publicGet<unknown>(
+      "/api/v1/futures/riskLimits",
+      { symbol },
+      `riskLimits:${symbol}`,
+      20,
+    );
+  }
+
+  /** Open futures positions for a symbol (or all). */
+  async getFuturesPositions(symbol?: string): Promise<unknown[]> {
+    const res = await this.privateGet<unknown>(
+      "/api/v1/futures/positions",
+      symbol ? { symbol } : {},
+      "futures:positions",
+      20,
+    );
+    return Array.isArray(res.data) ? (res.data as unknown[]) : [];
+  }
+
+  /** Open futures orders for a symbol (or all). */
+  async getFuturesOpenOrders(symbol?: string): Promise<unknown[]> {
+    const res = await this.privateGet<unknown>(
+      "/api/v1/futures/openOrders",
+      symbol ? { symbol } : {},
+      "futures:openOrders",
+      20,
+    );
+    return Array.isArray(res.data) ? (res.data as unknown[]) : [];
+  }
+
+  /**
+   * Place a futures order. MARKET is converted here to `type=LIMIT,
+   * priceType=MARKET` (the only way Toobit encodes a market order) so no caller
+   * can ever leave a resting order unintentionally.
+   */
+  placeFuturesOrder(params: PlaceOrderParams): Promise<ClientResponse<unknown>> {
+    let { type, priceType } = params;
+    if (type === "MARKET") {
+      type = "LIMIT";
+      priceType = "MARKET";
+    }
+    const clientId = params.newClientOrderId
+      ? params.newClientOrderId.replace(/[^a-zA-Z0-9_\-.]/g, "")
+      : `ct_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return this.privatePost<unknown>(
+      "/api/v1/futures/order",
+      {
+        symbol: params.symbol,
+        side: params.side,
+        type,
+        quantity: params.quantity,
+        price: params.price,
+        newClientOrderId: clientId,
+        priceType,
+        stopPrice: params.stopPrice,
+        timeInForce: params.timeInForce,
+      },
+      "futures:order",
+      20,
+    );
+  }
+
+  /** Cancel one futures order (by orderId or clientOrderId). */
+  cancelFuturesOrder(
+    orderId?: string,
+    clientOrderId?: string,
+  ): Promise<ClientResponse<unknown>> {
+    return this.privateDelete<unknown>(
+      "/api/v1/futures/order",
+      { orderId, clientOrderId },
+      "futures:cancelOrder",
+      20,
+    );
+  }
+
+  /** Cancel all open futures orders for a symbol. */
+  cancelAllFuturesOrders(symbol: string): Promise<ClientResponse<unknown>> {
+    return this.privateDelete<unknown>(
+      "/api/v1/futures/batchOrders",
+      { symbol },
+      "futures:cancelAll",
+      10,
+    );
+  }
+
+  /** Set leverage for a contract symbol. */
+  setFuturesLeverage(symbol: string, leverage: number): Promise<ClientResponse<unknown>> {
+    return this.privatePost<unknown>(
+      "/api/v1/futures/leverage",
+      { symbol, leverage },
+      "futures:leverage",
+      10,
+    );
+  }
+
+  /** Switch margin mode for a contract symbol (CROSS or ISOLATED). */
+  setFuturesMarginType(
+    symbol: string,
+    marginType: "CROSS" | "ISOLATED",
+  ): Promise<ClientResponse<unknown>> {
+    return this.privatePost<unknown>(
+      "/api/v1/futures/marginType",
+      { symbol, marginType },
+      "futures:marginType",
+      10,
+    );
+  }
+
+  /** Create or move the TP/SL for a position (same call, keyed by symbol+side). */
+  setFuturesTradingStop(params: TradingStopParams): Promise<ClientResponse<unknown>> {
+    return this.privatePost<unknown>(
+      "/api/v1/futures/position/trading-stop",
+      {
+        symbol: params.symbol,
+        side: params.side,
+        takeProfit: params.takeProfit,
+        stopLoss: params.stopLoss,
+      },
+      "futures:tradingStop",
+      10,
+    );
+  }
+
+  /** Flash-close a position at market (whole position). */
+  flashClose(symbol: string, side: "LONG" | "SHORT"): Promise<ClientResponse<unknown>> {
+    return this.privatePost<unknown>(
+      "/api/v1/futures/flashClose",
+      { symbol, side },
+      "futures:flashClose",
+      10,
+    );
   }
 }
 

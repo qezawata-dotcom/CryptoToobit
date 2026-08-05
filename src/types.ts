@@ -102,6 +102,31 @@ export type PositionInfo = {
   liquidation_price: number | null;
 };
 
+/**
+ * Rich position view used by PositionManager — a 1:1 port of the dict the
+ * Python get_position_pnl() returns. `position_size` keeps the exchange's sign
+ * (positive LONG, negative SHORT); callers use Math.abs where quantity is meant.
+ */
+export type PositionDetail = {
+  exists: boolean;
+  position_side: PositionSide | null;
+  unrealized_pnl: number;
+  roi: number;
+  entry_price: number;
+  mark_price: number;
+  leverage: number;
+  position_size: number;
+  position_value: number;
+  margin: number;
+  /** TP/SL identifier. Toobit has no profitId; a truthy sentinel means the
+   * position carries trigger prices (protection exists). */
+  profit_id: string | null;
+  trigger_profit_price: number;
+  trigger_stop_price: number;
+  position_type: string;
+  available_close_size: number;
+};
+
 export type ContractInfo = {
   symbol: string;
   contract_size: number; // e.g. 0.0001 BTC per contract

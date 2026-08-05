@@ -190,7 +190,84 @@ export function toBalance(raw: unknown): {
     available: pickNum(o, ["availableBalance", "available", "maxTransferOut", "free"]),
     margin: pickNum(o, ["marginBalance", "margin", "positionMargin"]),
     unrealized: pickNum(o, ["unrealizedProfit", "unrealizedPnl"]),
-    frozen: pickNum(o, ["frozen", "frozenBalance", "locked"]),
+    // openOrderMarginFrozen is the term the XT sizing formula subtracts from
+    // the wallet balance (get_tradable_balance). Toobit's equivalent may be
+    // plain `frozen`/`locked` — accept all three.
+    frozen: pickNum(o, ["openOrderMarginFrozen", "frozen", "frozenBalance", "locked"]),
+  };
+}
+
+/**
+ * Resolve the position side a raw position belongs to. Toobit may report
+ * `positionSide`/`side`, or `BOTH` in one-way mode (where the sign of the size
+ * encodes the side); when neither is present, fall back to the size sign.
+ */
+export function positionSideOf(raw: unknown): "LONG" | "SHORT" | null {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const explicit = pickStr(o, ["positionSide", "side"]);
+  if (explicit === "LONG" || explicit === "SHORT") return explicit;
+  if (explicit && explicit.toUpperCase() === "BOTH") {
+    const size = pickNum(o, ["positionSize", "positionAmt", "position", "size"]);
+    return size >= 0 ? "LONG" : "SHORT";
+  }
+  const size = pickNum(o, ["positionSize", "positionAmt", "position", "size"]);
+  if (size > 0) return "LONG";
+  if (size < 0) return "SHORT";
+  return null;
+}
+
+/** Signed position size in contracts (positive LONG, negative SHORT). */
+export function positionSizeOf(raw: unknown): number {
+  return pickNum(o(raw), ["positionSize", "positionAmt", "position", "size"]);
+}
+
+function o(raw: unknown): Record<string, unknown> {
+  return (raw ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * Raw position → the rich view PositionManager needs. Mirrors the Python
+ * get_position_pnl() field read with Toobit alias candidates.
+ *
+ * `profit_id` is a truthy sentinel ("position-tpsl") whenever the position
+ * carries trigger prices but no explicit id — Toobit's trading-stop is keyed by
+ * (symbol, side), so the id is only used as an "is protected" gate.
+ */
+export function toPositionDetail(raw: unknown): {
+  position_side: "LONG" | "SHORT" | null;
+  unrealized_pnl: number;
+  entry_price: number;
+  mark_price: number;
+  leverage: number;
+  position_size: number;
+  margin: number;
+  profit_id: string | null;
+  trigger_profit_price: number;
+  trigger_stop_price: number;
+  position_type: string;
+  available_close_size: number;
+} {
+  const obj = o(raw);
+  const size = positionSizeOf(raw);
+  const entry = pickNum(obj, ["entryPrice", "avgPrice", "price"]);
+  const mark = pickNum(obj, ["calMarkPrice", "markPrice", "mark"]);
+  const leverage = pickNum(obj, ["leverage"]) || 1;
+  const explicitId = pickStr(obj, ["profitId", "takeProfitId", "stopLossId"]);
+  const tp = pickNum(obj, ["takeProfitPrice", "triggerProfitPrice"]);
+  const sl = pickNum(obj, ["stopLossPrice", "triggerStopPrice"]);
+  return {
+    position_side: positionSideOf(raw),
+    unrealized_pnl: pickNum(obj, ["floatingPL", "unrealizedProfit", "unrealizedPnl", "pnl"]),
+    entry_price: entry,
+    mark_price: mark,
+    leverage,
+    position_size: size,
+    margin: pickNum(obj, ["isolatedMargin", "margin", "positionMargin"]),
+    profit_id: explicitId || (tp > 0 || sl > 0 ? "position-tpsl" : null),
+    trigger_profit_price: tp,
+    trigger_stop_price: sl,
+    position_type: pickStr(obj, ["positionType", "marginType"]),
+    available_close_size: pickNum(obj, ["availableCloseSize", "availableClose", "closeSize"]),
   };
 }
 
