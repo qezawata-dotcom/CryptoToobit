@@ -8,6 +8,7 @@ import { SignalScanner } from "./bot/signalScanner.js";
 import { RiskManager } from "./bot/riskManager.js";
 import { PositionManager } from "./bot/positionManager.js";
 import { ToobitTrader } from "./bot/trader.js";
+import { MartingaleManager } from "./bot/martingale.js";
 import { AIChat } from "./bot/aiChat.js";
 import { TelegramBot } from "./bot/telegramBot.js";
 
@@ -64,7 +65,14 @@ export async function main(): Promise<void> {
   const scanner = new SignalScanner(exchange, memory);
   const risk = new RiskManager(exchange, memory);
   const positions = new PositionManager(exchange, memory, risk);
-  const trader = new ToobitTrader(exchange, memory, scanner, engine, risk, positions);
+
+  // 4. Martingale engine. Off by default; when martingale_enabled is turned on
+  //    the auto-trade loop runs its basket checks on the guard cadence. Its
+  //    notifications route through the trader's chain (which the Telegram bot
+  //    hooks), so adds/caps/closes land in the owner's chat.
+  const martingale = new MartingaleManager(exchange, memory, risk, scanner, positions);
+  const trader = new ToobitTrader(exchange, memory, scanner, engine, risk, positions, martingale);
+  martingale.set_notify_callback((msg) => trader._notify(msg));
 
   // 4. AI assistant (function-calling loop bound to the trader).
   const ai = new AIChat(memory, engine);

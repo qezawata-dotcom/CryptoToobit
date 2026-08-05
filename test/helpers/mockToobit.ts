@@ -265,7 +265,15 @@ export class MockToobitClient implements FuturesExchange {
     if (openSide) {
       const existing = this.positions.find((p) => p.symbol === order.symbol && p.positionSide === openSide);
       if (existing) {
-        existing.positionAmt += order.side === "BUY_OPEN" ? order.quantity : -order.quantity;
+        const addQty = order.side === "BUY_OPEN" ? order.quantity : -order.quantity;
+        // Same-direction fill → real exchanges recompute the weighted-average
+        // entry. This is what martingale adds rely on (avg entry drags toward
+        // the market so a shallow rebound takes the basket out).
+        if (existing.positionAmt !== 0 && Math.sign(existing.positionAmt) === Math.sign(addQty)) {
+          const total = Math.abs(existing.positionAmt) * existing.entryPrice + Math.abs(addQty) * price;
+          existing.entryPrice = total / Math.abs(existing.positionAmt + addQty);
+        }
+        existing.positionAmt += addQty;
         existing.markPrice = price;
         existing.availableCloseSize = Math.abs(existing.positionAmt);
       } else {

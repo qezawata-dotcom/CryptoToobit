@@ -8,6 +8,7 @@ import { PositionManager } from "./positionManager.js";
 import type { CloseResult } from "./positionManager.js";
 import type { SignalScanner, ScanReport } from "./signalScanner.js";
 import type { StrategyEngine } from "./strategies.js";
+import type { MartingaleManager } from "./martingale.js";
 import { sleep } from "./positionManager.js";
 import type { OrderType, TimeInForce } from "../exchange/types.js";
 
@@ -50,6 +51,7 @@ export class ToobitTrader {
     public readonly engine: StrategyEngine,
     risk?: RiskManager,
     positionMgr?: PositionManager,
+    private martingale?: MartingaleManager,
   ) {
     this.risk = risk ?? new RiskManager(exchange, memory);
     this.positionMgr = positionMgr ?? new PositionManager(exchange, memory, this.risk);
@@ -556,6 +558,13 @@ export class ToobitTrader {
         this._notify(`Position ${event.symbol} ${event.position_side} disappeared from the exchange (trade ${event.trade_id}). Likely liquidation, external close, or TP/SL fill. Marked closed locally.`);
       }
       await this.check_positions_for_close();
+
+      // Martingale baskets are driven by the same guard cadence. The engine
+      // notifies internally (adds, caps, closes); here we only need to run it.
+      // No-ops when the feature is off or no basket is running.
+      if (this.martingale?.is_enabled()) {
+        await this.martingale.check_all();
+      }
 
       if (now - this._lastScan >= scanInterval) {
         this._lastScan = now;

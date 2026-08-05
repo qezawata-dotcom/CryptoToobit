@@ -244,10 +244,12 @@ export class RiskManager {
       qty = await this.size_by_margin_pct(symbol, price, leverage);
       mode = "margin_based";
     }
-    return this._validate_size(symbol, qty, price, mode, orderType);
+    return this.validate_size(symbol, qty, price, mode, orderType);
   }
 
-  private async _validate_size(
+  /** Min/max qty + notional validation. Public so the martingale engine can
+   * size its base order with the same checks as a normal trade. */
+  async validate_size(
     symbol: string,
     qty: number,
     price: number,
