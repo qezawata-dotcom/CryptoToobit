@@ -2,15 +2,21 @@ import http from "node:http";
 import { Config } from "./config.js";
 import { logger } from "./logger.js";
 import { LongTermMemory } from "./bot/memory.js";
+import { ToobitClient } from "./exchange/toobitClient.js";
+import { StrategyEngine } from "./bot/strategies.js";
+import { SignalScanner } from "./bot/signalScanner.js";
+import { RiskManager } from "./bot/riskManager.js";
+import { PositionManager } from "./bot/positionManager.js";
+import { ToobitTrader } from "./bot/trader.js";
+import { AIChat } from "./bot/aiChat.js";
+import { TelegramBot } from "./bot/telegramBot.js";
 
 /**
  * CryptoToobit entry point.
  *
- * M1 scope: boot the memory layer (seed default settings), validate required
- * env vars, and serve a health endpoint on PORT so Railway's healthcheck and
- * the user can confirm the process is alive. Trading, Telegram and the AI loop
- * land in later milestones; this file is the single bootstrap seam they plug
- * into.
+ * M5 wiring: memory → exchange client → strategies/scanner/risk/positions →
+ * trader → AI assistant → Telegram bot. The health server on PORT gives
+ * Railway its liveness probe; the bot long-polls in the background.
  */
 
 function startHealthServer(): http.Server {
@@ -29,7 +35,7 @@ function startHealthServer(): http.Server {
   return server;
 }
 
-export function main(): void {
+export async function main(): Promise<void> {
   // 1. Required credentials must be present. Missing vars are reported
   //    together and the process refuses to start (same as Config.validate()).
   const missing = Config.validate();
@@ -48,13 +54,35 @@ export function main(): void {
   if (seeded > 0) {
     logger.info({ seeded }, "settings table seeded with defaults");
   }
+  // Crash recovery: baskets abandoned by a previous run are closed.
+  const stale = memory.close_stale_martingale_states();
+  if (stale > 0) logger.info({ stale }, "stale martingale states closed");
 
-  // 3. Health server (also gives Railway its liveness probe).
+  // 3. Exchange client + bot core.
+  const exchange = new ToobitClient();
+  const engine = new StrategyEngine();
+  const scanner = new SignalScanner(exchange, memory);
+  const risk = new RiskManager(exchange, memory);
+  const positions = new PositionManager(exchange, memory, risk);
+  const trader = new ToobitTrader(exchange, memory, scanner, engine, risk, positions);
+
+  // 4. AI assistant (function-calling loop bound to the trader).
+  const ai = new AIChat(memory, engine);
+  ai.bind_trader(trader);
+
+  // 5. Telegram bot: commands + free-text AI + trader notifications.
+  const bot = new TelegramBot(trader, ai, memory);
+  void bot.run().catch((err) => {
+    logger.error({ err }, "Telegram bot stopped");
+    process.exitCode = 1;
+  });
+
+  // 6. Health server (also gives Railway its liveness probe).
   startHealthServer();
 
   logger.info(
     { symbol: Config.DEFAULT_SYMBOL, db: Config.DATABASE_PATH },
-    "CryptoToobit booted (scaffold) — exchange client, Telegram and AI arrive in later milestones",
+    "CryptoToobit booted — trading, Telegram and AI online",
   );
 }
 
