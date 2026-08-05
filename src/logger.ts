@@ -18,7 +18,7 @@ const SENSITIVE_PATHS = [
   "headers",
 ];
 
-function redactKey(key: string): string {
+function redactKey(key: string): boolean {
   const lower = key.toLowerCase();
   return (
     SENSITIVE_PATHS.some(
