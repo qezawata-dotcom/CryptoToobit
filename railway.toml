@@ -1,0 +1,18 @@
+# Railway service config.
+# - healthcheckPath matches the /health endpoint in src/main.ts.
+# - build: `npm run build` (tsc) so `npm start` runs compiled dist/main.js.
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+startCommand = "npm start"
+
+# Persistence: mount a Volume at /data and point DATABASE_PATH there in the
+# service's variables. Without a volume the SQLite file is ephemeral and
+# resets on every redeploy (settings, trade history, martingale baskets).
+#   DATABASE_PATH=/data/memory.db
+# If you attach a Railway Volume, give it mount path "/data".
+[[deploy.volumes]]
+mountPath = "/data"

@@ -1,0 +1,7 @@
+# Nixpacks (Railway's default builder) — Node.js >= 20 so better-sqlite3 gets
+# prebuilt binaries. `npm run build` runs before start (tsc → dist/).
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[start]
+cmd = "npm start"

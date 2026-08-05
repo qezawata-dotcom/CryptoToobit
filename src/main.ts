@@ -49,6 +49,23 @@ export async function main(): Promise<void> {
     return;
   }
 
+  // 1b. Startup sanity check: a private, read-only call before any trading.
+  //     Wrong/expired credentials or a futures-trade permission gap surfaces
+  //     here instead of on the first order. Auth failure is fatal (exit 1) —
+  //     a bot that can't authenticate must not appear "online".
+  const exchange = new ToobitClient();
+  try {
+    await exchange.checkApiKey();
+    logger.info("API key check passed — credentials valid and readable");
+  } catch (error) {
+    logger.error(
+      { err: String(error) },
+      "checkApiKey failed — the bot cannot authenticate with Toobit. Refusing to start.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   // 2. Persistence. Seeding is no-clobber: user settings survive restarts.
   const memory = new LongTermMemory();
   const seeded = memory.seed_defaults(Config.defaultSettings());
@@ -59,8 +76,7 @@ export async function main(): Promise<void> {
   const stale = memory.close_stale_martingale_states();
   if (stale > 0) logger.info({ stale }, "stale martingale states closed");
 
-  // 3. Exchange client + bot core.
-  const exchange = new ToobitClient();
+  // 3. Bot core (reuses the exchange client from the startup check).
   const engine = new StrategyEngine();
   const scanner = new SignalScanner(exchange, memory);
   const risk = new RiskManager(exchange, memory);
