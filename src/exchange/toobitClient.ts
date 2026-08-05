@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import { Config } from "../config.js";
 import { logger } from "../logger.js";
+import type { Candle } from "../types.js";
+import { candlesToCandles, toMarkPrice, toTicker } from "./normalize.js";
 import type { QueryParams, ToobitResponse } from "./types.js";
 
 /**
@@ -495,6 +497,41 @@ export class ToobitClient {
 
   getFuturesBalance(): Promise<ClientResponse<unknown>> {
     return this.privateGet<unknown>("/api/v1/futures/balance", {});
+  }
+
+  // ---------- market data (satisfies SignalScanner's MarketDataSource) ----------
+
+  /** Klines for a futures or spot symbol; candles normalized + arbitrary order. */
+  async getKlines(symbol: string, interval: string, limit = 200): Promise<Candle[]> {
+    const res = await this.publicGet<unknown>(
+      "/quote/v1/klines",
+      { symbol, interval, limit: Math.min(limit, 1500) },
+      `klines:${symbol}:${interval}`,
+      20,
+    );
+    return candlesToCandles(res.data);
+  }
+
+  /** Last traded price via the 24h contract ticker, 0 if unparseable. */
+  async getTickerPrice(symbol: string): Promise<number> {
+    const res = await this.publicGet<unknown>(
+      "/quote/v1/contract/ticker/24hr",
+      { symbol },
+      `ticker:${symbol}`,
+      20,
+    );
+    return toTicker(res.data).last;
+  }
+
+  /** Mark price (futures), 0 if unparseable. */
+  async getMarkPrice(symbol: string): Promise<number> {
+    const res = await this.publicGet<unknown>(
+      "/quote/v1/markPrice",
+      { symbol },
+      `mark:${symbol}`,
+      20,
+    );
+    return toMarkPrice(res.data).markPrice;
   }
 }
 
