@@ -345,12 +345,13 @@ export class LongTermMemory {
   // ---------- settings ----------
 
   set_setting(key: string, value: string | number | boolean): void {
+    const ts = Date.now() / 1000;
     this.db
       .prepare(
         `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
       )
-      .run(String(value), Date.now() / 1000, String(value), Date.now() / 1000);
+      .run(key, String(value), ts);
   }
 
   /** Writes only when the key is absent, so restarts don't clobber user settings. */
